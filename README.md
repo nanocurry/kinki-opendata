@@ -29,6 +29,17 @@
 
 [`.github/workflows/collect-traffic.yml`](.github/workflows/collect-traffic.yml) が1日3回動き、[`scripts/collect_traffic.py`](scripts/collect_traffic.py) が「提供元にまだ残っていて、ここにまだない日」を、消えそうな日から順に1時間ずつ取ります（リクエストの間は1秒あける）。ファイルをリリースに置けたあとで台帳に記録するので、途中で失敗した日は次の実行でやり直されます。動作は偽のAPIで試験しています（[`tests/`](tests/)）。
 
+## 近畿の気象警報・注意報
+
+気象庁のホームページの警報・注意報のJSONは「今の最新の発表」だけを返し、過去の発表は機械で読める形では残りません。そこで、近畿6府県（大阪 `270000`・京都 `260000`・兵庫 `280000`・奈良 `290000`・和歌山 `300000`・滋賀 `250000`）を10分ごとに見て、**中身が変わったときだけ** 保存しています。
+
+- **置き場所**：[`data/warning/{府県コード}/{YYYY-MM}.jsonl`](data/warning/)。1行が1回分で、`fetched_at_jst`（取った時刻）、`latest_report_datetime`（その中で最も新しい発表時刻）、`sha256`（中身の指紋）、`body`（気象庁のJSONそのまま、加工なし）
+- **読み方**：`body` は発表の種類（`dataTypeCode`）ごとに最新の1件が並ぶ。警報・注意報のコードの意味は気象庁の資料、または [shiromatz/Japan-Meteorological-Agency-Weather-Forecast](https://github.com/shiromatz/Japan-Meteorological-Agency-Weather-Forecast) の `warningCode/r8/` を参照
+- **限界**：10分の間に同じ種類の発表が2回あると、前のほうは取れない。GitHub の定期実行が遅れたり飛んだりした間も同じ。取った時刻は `fetched_at_jst` で、実行の記録は Actions タブで確かめられる
+- **過去の記録であり、今の警報ではありません。** 今の情報は気象庁のホームページで確かめてください。
+
+[`.github/workflows/collect-warning.yml`](.github/workflows/collect-warning.yml) と [`scripts/collect_warning.py`](scripts/collect_warning.py) で集めています。
+
 ## 出典と利用条件
 
 出典：「交通量 API（国土交通省）機能による交通量(参考値)」を加工して作成
@@ -36,4 +47,8 @@
 
 - 値は参考値で、国土交通省の公式な交通量調査の結果ではありません。故障中の観測点は 0 と異常フラグで返ることがあるので、フラグの立った行は除いて使ってください。
 - このリポジトリは国土交通省・日本道路交通情報センターが作成または保証したものではありません。
-- データの利用条件は提供元の利用規約に従います（CC BY 4.0 と互換と示されています）。コードは MIT License です。
+- データの利用条件は提供元の利用規約に従います（CC BY 4.0 と互換と示されています）。
+
+気象警報・注意報：出典：気象庁ホームページ（https://www.jma.go.jp/bosai/warning/）。気象庁ホームページのコンテンツ利用規約（公共データ利用規約に準拠）に従って保存しています。このリポジトリは気象庁が作成または保証したものではありません。
+
+コードは MIT License です。
