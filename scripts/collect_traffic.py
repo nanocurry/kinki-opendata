@@ -162,16 +162,31 @@ class DayResult:
         return len(self.missing_codes) / CODES_PER_DAY
 
 
+def point_of(geometry: dict | None) -> tuple[float | None, float | None]:
+    """Point（[経度, 緯度]）でも MultiPoint（[[経度, 緯度]]）でも、空でも読む。"""
+    coords = (geometry or {}).get("coordinates")
+    while isinstance(coords, list) and coords and isinstance(coords[0], list):
+        coords = coords[0]
+    if isinstance(coords, list) and len(coords) >= 2:
+        return coords[0], coords[1]
+    return None, None
+
+
 def fetch_day(fetcher: Fetcher, day: date, layer_key: str, road_type: int) -> DayResult:
     layer = LAYERS[layer_key]
     result = DayResult(day=day, layer=layer_key, road_type=road_type)
     ymd = day.strftime("%Y%m%d")
     for hour in range(24):
         features = fetcher.get_features(layer, road_type, f"{ymd}{hour:02d}00", f"{ymd}{hour:02d}55")
+        if features and not getattr(fetcher, "_shown_sample", set()) >= {layer_key}:
+            # 提供元の形が変わっても気づけるよう、レイヤーごとに最初の1件の様子をログに出す
+            sample = features[0]
+            print(f"  [{layer_key}] 1件目の位置: {json.dumps(sample.get('geometry'), ensure_ascii=False)[:200]}")
+            print(f"  [{layer_key}] 列: {list((sample.get('properties') or {}).keys())}")
+            fetcher._shown_sample = getattr(fetcher, "_shown_sample", set()) | {layer_key}
         for feat in features:
             props = dict(feat.get("properties") or {})
-            coords = (feat.get("geometry") or {}).get("coordinates") or [None, None]
-            props["経度"], props["緯度"] = coords[0], coords[1]
+            props["経度"], props["緯度"] = point_of(feat.get("geometry"))
             for key in props:
                 if key not in result.columns:
                     result.columns.append(key)
