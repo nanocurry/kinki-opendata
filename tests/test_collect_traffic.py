@@ -112,6 +112,14 @@ class FetchDayTest(unittest.TestCase):
             ct.fetch_day(fetcher(s), self.day, "loop", 3)
 
 
+class PointOfTest(unittest.TestCase):
+    def test_shapes(self):
+        self.assertEqual(ct.point_of({"type": "Point", "coordinates": [135.5, 34.6]}), (135.5, 34.6))
+        self.assertEqual(ct.point_of({"type": "MultiPoint", "coordinates": [[135.5, 34.6]]}), (135.5, 34.6))
+        self.assertEqual(ct.point_of({"type": "Point", "coordinates": []}), (None, None))
+        self.assertEqual(ct.point_of(None), (None, None))
+
+
 class DecideStatusTest(unittest.TestCase):
     def result(self, n_missing, rows=True):
         r = ct.DayResult(day=date(2026, 11, 1), layer="loop", road_type=3)
