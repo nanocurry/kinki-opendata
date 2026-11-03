@@ -1,0 +1,75 @@
+# 近畿の交通量（5分値）を集めて、月ごとのリリースに日ごとのファイルとして置く。
+# 1日3回（日本時間 1:23・9:23・17:23 ごろ）動く。混んでいると遅れることがある。
+# 止めたいときは、GitHub の Actions タブでこのワークフローを Disable にする。
+name: collect-traffic
+
+on:
+  schedule:
+    - cron: "23 0,8,16 * * *" # UTC
+  workflow_dispatch:
+    inputs:
+      max_days:
+        description: "1回で取りに行く日数の上限"
+        default: "8"
+
+permissions:
+  contents: write # リリースへのアップロードと、台帳（data/manifest_traffic.csv）のコミット
+
+concurrency:
+  group: collect-traffic
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: パッケージを入れる
+        run: pip install -r requirements.txt
+
+      - name: 偽のAPIで試験
+        run: python -m unittest discover -s tests
+
+      - name: 交通量を取る
+        run: python scripts/collect_traffic.py fetch --max-days "${{ github.event.inputs.max_days || '8' }}"
+
+      - name: 月ごとのリリースに置く
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in out/*.csv.gz; do
+            ymd=$(basename "$f" .csv.gz | grep -oE '[0-9]{8}$')
+            tag="raw-${ymd:0:6}"
+            if ! gh release view "$tag" > /dev/null 2>&1; then
+              gh release create "$tag" --title "近畿の交通量 5分値 ${ymd:0:4}年${ymd:4:2}月" \
+                --notes "出典：「交通量 API（国土交通省）機能による交通量(参考値)」を加工して作成（データ提供：公益財団法人日本道路交通情報センター）。詳しくは README を参照。"
+            fi
+            gh release upload "$tag" "$f" --clobber
+          done
+
+      - name: 台帳に記録してコミット
+        run: |
+          set -euo pipefail
+          python scripts/collect_traffic.py record
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/manifest_traffic.csv
+          if git diff --cached --quiet; then
+            echo "台帳の変更なし"
+            exit 0
+          fi
+          git commit -m "交通量の台帳を更新 $(TZ=Asia/Tokyo date +%Y-%m-%dT%H:%M)"
+          for i in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            sleep 10
+          done
+          exit 1
