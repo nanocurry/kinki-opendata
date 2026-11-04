@@ -87,15 +87,54 @@ class CollectXmlTest(unittest.TestCase):
             entry(OSAKA_OTHER, "2026-11-04T01:10:00Z"),
         )
 
-    def test_saves_only_kinki_warnings(self):
+    def test_saves_warnings_nationwide(self):
         row = self.run_once(FakeSession(self.standard_feed()))
-        self.assertEqual((row["feed_entries"], row["kinki_warning_entries"], row["new_saved"]), (4, 2, 2))
+        self.assertEqual(
+            (row["feed_entries"], row["warning_entries"], row["kinki_warning_entries"], row["new_saved"]), (4, 3, 2, 3)
+        )
         osaka = cx.DATA_DIR / "270000" / "2026-11" / f"{OSAKA}.gz"
         with gzip.open(osaka, "rb") as f:
             self.assertIn(OSAKA.encode(), f.read())
         self.assertTrue((cx.DATA_DIR / "300000" / "2026-11" / f"{WAKAYAMA}.gz").exists())
-        self.assertFalse((cx.DATA_DIR / "130000").exists())
-        self.assertEqual(row["feed_oldest_jst"], "2026-11-04T04:28")
+        self.assertTrue((cx.DATA_DIR / "130000" / "2026-11" / f"{TOKYO}.gz").exists())
+        self.assertFalse(any(cx.DATA_DIR.glob(f"*/*/{OSAKA_OTHER}.gz")))  # 警報でない種類は取らない
+
+    def test_target_areas_filter(self):
+        saved = cx.TARGET_AREAS
+        cx.TARGET_AREAS = set(cx.AREAS)
+        try:
+            row = self.run_once(FakeSession(self.standard_feed()))
+            self.assertEqual(row["new_saved"], 2)
+            self.assertFalse((cx.DATA_DIR / "130000").exists())
+        finally:
+            cx.TARGET_AREAS = saved
+
+    def test_download_cap_defers_the_rest_to_next_run(self):
+        saved = cx.MAX_DOWNLOADS
+        cx.MAX_DOWNLOADS = 2
+        try:
+            row = self.run_once(FakeSession(self.standard_feed()))
+            self.assertEqual((row["new_saved"], row["deferred"]), (2, 1))
+            # 古い順に取るので、最も古い和歌山は1回目に取れている
+            self.assertTrue((cx.DATA_DIR / "300000" / "2026-11" / f"{WAKAYAMA}.gz").exists())
+            row = self.run_once(FakeSession(self.standard_feed()), now="2026-11-04T12:00:00")
+            self.assertEqual((row["new_saved"], row["deferred"]), (1, 0))
+        finally:
+            cx.MAX_DOWNLOADS = saved
+
+    def test_old_log_with_fewer_columns_is_rewritten(self):
+        path = cx.DATA_DIR / "fetch_log_2026-11.csv"
+        path.parent.mkdir(parents=True)
+        old = cx.LOG_FIELDS[:8]
+        path.write_text(",".join(old) + "\n" + ",".join(["2026-11-04T11:00:00+0900", "5027", "", "", "374", "374", "0", "0"]) + "\n", encoding="utf-8")
+        self.run_once(FakeSession(self.standard_feed()), now="2026-11-04T12:00:00")
+        with open(path, encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["new_saved"], "374")
+        self.assertEqual(rows[0]["deferred"], "")
+        self.assertEqual(rows[1]["warning_entries"], "3")
+        self.assertEqual(rows[1]["feed_oldest_jst"], "2026-11-04T04:28")
 
     def test_second_run_downloads_nothing_again(self):
         self.run_once(FakeSession(self.standard_feed()))
@@ -106,7 +145,7 @@ class CollectXmlTest(unittest.TestCase):
 
     def test_broken_body_is_not_saved_and_retried_next_time(self):
         row = self.run_once(FakeSession(self.standard_feed(), broken={OSAKA}))
-        self.assertEqual((row["new_saved"], row["failed"]), (1, 1))
+        self.assertEqual((row["new_saved"], row["failed"]), (2, 1))
         row = self.run_once(FakeSession(self.standard_feed()), now="2026-11-04T12:00:00")
         self.assertEqual(row["new_saved"], 1)
 
