@@ -1,0 +1,2 @@
+# 実行の記録（追記だけの表）は、ぶつかったら両方の行を残してまとめる
+data/warning_xml/fetch_log_*.csv merge=union
