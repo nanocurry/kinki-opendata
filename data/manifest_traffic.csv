@@ -15,6 +15,14 @@ date,layer,road_type,file,rows,codes_present,codes_expected,missing_codes,status
 2026-10-07,cctv,3,kinki_cctv_5m_road3_20261007.csv.gz,39456,288,288,,complete,2026-11-04T01:23:49+0900
 2026-10-07,loop,1,kinki_loop_5m_road1_20261007.csv.gz,1735,288,288,,complete,2026-11-04T01:22:34+0900
 2026-10-07,loop,3,kinki_loop_5m_road3_20261007.csv.gz,23623,288,288,,complete,2026-11-04T01:21:51+0900
+2026-10-08,cctv,1,kinki_cctv_5m_road1_20261008.csv.gz,288,288,288,,complete,2026-11-05T01:28:22+0900
+2026-10-08,cctv,3,kinki_cctv_5m_road3_20261008.csv.gz,39456,288,288,,complete,2026-11-05T01:27:42+0900
+2026-10-08,loop,1,kinki_loop_5m_road1_20261008.csv.gz,1729,287,288,2345,complete_with_gaps,2026-11-05T01:26:28+0900
+2026-10-08,loop,3,kinki_loop_5m_road3_20261008.csv.gz,23541,287,288,2345,complete_with_gaps,2026-11-05T01:25:48+0900
+2026-10-09,cctv,1,kinki_cctv_5m_road1_20261009.csv.gz,288,288,288,,complete,2026-11-05T01:37:31+0900
+2026-10-09,cctv,3,kinki_cctv_5m_road3_20261009.csv.gz,39456,288,288,,complete,2026-11-05T01:36:52+0900
+2026-10-09,loop,1,kinki_loop_5m_road1_20261009.csv.gz,1735,288,288,,complete,2026-11-05T01:35:35+0900
+2026-10-09,loop,3,kinki_loop_5m_road3_20261009.csv.gz,23623,288,288,,complete,2026-11-05T01:34:51+0900
 2026-10-10,cctv,1,kinki_cctv_5m_road1_20261010.csv.gz,288,288,288,,complete,2026-11-04T16:09:30+0900
 2026-10-10,cctv,3,kinki_cctv_5m_road3_20261010.csv.gz,39456,288,288,,complete,2026-11-04T16:08:48+0900
 2026-10-10,loop,1,kinki_loop_5m_road1_20261010.csv.gz,1735,288,288,,complete,2026-11-04T16:07:29+0900
@@ -113,3 +121,7 @@ date,layer,road_type,file,rows,codes_present,codes_expected,missing_codes,status
 2026-11-02,loop,3,kinki_loop_5m_road3_20261102.csv.gz,23541,287,288,2345,complete_with_gaps,2026-11-04T01:29:14+0900
 2026-11-03,cctv,1,kinki_cctv_5m_road1_20261103.csv.gz,288,288,288,,complete,2026-11-04T01:28:11+0900
 2026-11-03,cctv,3,kinki_cctv_5m_road3_20261103.csv.gz,39456,288,288,,complete,2026-11-04T01:27:32+0900
+2026-11-03,loop,1,kinki_loop_5m_road1_20261103.csv.gz,1725,286,288,0245;0300,complete_with_gaps,2026-11-05T01:33:47+0900
+2026-11-03,loop,3,kinki_loop_5m_road3_20261103.csv.gz,23493,286,288,0245;0300,complete_with_gaps,2026-11-05T01:33:06+0900
+2026-11-04,cctv,1,kinki_cctv_5m_road1_20261104.csv.gz,288,288,288,,complete,2026-11-05T01:32:02+0900
+2026-11-04,cctv,3,kinki_cctv_5m_road3_20261104.csv.gz,39456,288,288,,complete,2026-11-05T01:31:22+0900
