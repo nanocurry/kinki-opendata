@@ -1,16 +1,18 @@
-"""全国の気象警報・注意報の電文を、気象庁防災情報XMLの「随時・長期フィード」から集める。
+"""全国の気象警報・注意報と海上警報の電文を、気象庁防災情報XMLの長期フィードから集める。
 
-（11/4 の初回は近畿6府県だけ。同じ日から全国。分析は近畿に絞る）
+- 気象警報・注意報（VPWW…）：随時の長期フィード（extra_l.xml）
+- 地方海上警報（VPCU51）・全般海上警報（VPZU…）：その他の長期フィード（other_l.xml）
+（11/4 の初回は近畿6府県の気象警報だけ。同じ日から全国。海上警報は 11/4 午後から。分析は近畿に絞る）
 
-長期フィード（extra_l.xml）は毎時更新で、数日分の全入電を載せている。
+長期フィードは毎時更新で、数日分の全入電を載せている。
 そのため GitHub の定期実行が1〜2時間遅れても、電文を1件ずつ取りこぼさずに拾える
 （ホームページのJSONは「今の最新」しか返さないので、実行が遅れると間の発表を失う）。
 
     python scripts/collect_warning_xml.py
 
 保存先：
-    data/warning_xml/{府県コード}/{YYYY-MM}/{電文のファイル名}.gz   電文そのもの（加工なし、gzip）
-    data/warning_xml/fetch_log_{YYYY-MM}.csv                         実行ごとの記録
+    data/warning_xml/{発表官署の地域コード}/{YYYY-MM}/{電文のファイル名}.gz   電文そのもの（加工なし、gzip）
+    data/warning_xml/fetch_log_{YYYY-MM}.csv                                 実行ごと・フィードごとの記録
 """
 
 from __future__ import annotations
@@ -28,7 +30,15 @@ from pathlib import Path
 import requests
 
 JST = timezone(timedelta(hours=9), "JST")
-FEED_URL = "https://www.data.jma.go.jp/developer/xml/feed/extra_l.xml"
+FEED_BASE = "https://www.data.jma.go.jp/developer/xml/feed/"
+# フィードの名前 → (URL, 拾う電文の種類コードの頭)
+FEEDS = {
+    # 気象警報・注意報（旧体系 VPWW53/54、令和6年からの分野別 VPWW55〜 などをまとめて拾う）
+    "extra": (FEED_BASE + "extra_l.xml", ("VPWW",)),
+    # 地方海上警報（H28）と全般海上警報（定時・臨時）。地方海上予報（VPCY51）は今は取らない
+    "other": (FEED_BASE + "other_l.xml", ("VPCU51", "VPZU")),
+}
+FEED_URL = FEEDS["extra"][0]  # 互換のため
 ATOM = {"a": "http://www.w3.org/2005/Atom"}
 
 # 集める府県（発表官署の地域コード。電文のファイル名の末尾に入っている）。None なら全国
@@ -45,8 +55,6 @@ AREAS = {
     "300000": "和歌山県",
     "250000": "滋賀県",
 }
-# 気象警報・注意報の電文の種類（旧体系 VPWW53/54、令和8年体系 VPWW55〜 などをまとめて拾う）
-TYPE_PREFIX = "VPWW"
 # 例：20261103192830_0_VPWW54_300000.xml
 FILE_RE = re.compile(r"(?P<name>\d{14}_\d+_(?P<type>[A-Z0-9]+)_(?P<area>\d{6})\.xml)$")
 
@@ -63,6 +71,7 @@ LOG_FIELDS = [
     "gap_suspected",
     "warning_entries",
     "deferred",
+    "feed",
 ]
 
 
@@ -109,18 +118,21 @@ def saved_path(entry: dict) -> Path:
     return DATA_DIR / entry["area"] / month / f"{entry['name']}.gz"
 
 
-def last_run_at() -> datetime | None:
-    """前回の実行の時刻（取りこぼしの疑いを判定するため）。"""
+def last_run_at(feed: str) -> datetime | None:
+    """そのフィードを前回読んだ時刻（取りこぼしの疑いを判定するため）。feed 列がない古い行は extra。"""
     logs = sorted(DATA_DIR.glob("fetch_log_*.csv"), reverse=True)
     for path in logs:
         with open(path, newline="", encoding="utf-8") as f:
-            rows = [r for r in csv.DictReader(f) if r["feed_entries"] not in ("", "0")]
+            rows = [
+                r for r in csv.DictReader(f)
+                if r["feed_entries"] not in ("", "0") and (r.get("feed") or "extra") == feed
+            ]
         if rows:
             return datetime.fromisoformat(rows[-1]["run_at_jst"])
     return None
 
 
-def append_log(row: dict, now: datetime) -> None:
+def append_log(rows: list[dict], now: datetime) -> None:
     path = DATA_DIR / f"fetch_log_{now:%Y-%m}.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
     old_rows: list[dict] = []
@@ -137,79 +149,91 @@ def append_log(row: dict, now: datetime) -> None:
         if new:
             w.writeheader()
         w.writerows(old_rows)
-        w.writerow(row)
+        w.writerows(rows)
 
 
 def area_name(code: str) -> str:
     return AREAS.get(code, code)
 
 
-def collect(session: requests.Session, now: datetime | None = None, pause_sec: float = 0.3) -> dict:
+def collect(session: requests.Session, now: datetime | None = None, pause_sec: float = 0.3) -> list[dict]:
+    """フィードごとに読み、新しい電文を保存する。フィードごとの記録の行を返す。"""
     now = now or datetime.now(JST)
-    previous = last_run_at()
-    entries = parse_feed(get(session, FEED_URL))
-    times = [e["updated"] for e in entries if e["updated"]]
-    targets = [
-        e for e in entries
-        if e["area"] and e["type"].startswith(TYPE_PREFIX) and (TARGET_AREAS is None or e["area"] in TARGET_AREAS)
-    ]
-    kinki = sum(1 for e in targets if e["area"] in AREAS)
-    todo = [e for e in targets if not saved_path(e).exists()]
-    # 古い順に取る（上限で残すのは新しい分＝フィードに長く残る分）
-    todo.sort(key=lambda e: e["name"])
-    deferred = max(0, len(todo) - MAX_DOWNLOADS)
-    todo = todo[:MAX_DOWNLOADS]
-
-    saved = failed = 0
-    for e in todo:
-        path = saved_path(e)
-        time.sleep(pause_sec)
+    budget = MAX_DOWNLOADS  # 1回の実行の上限は、フィードをまたいで共通
+    rows = []
+    for feed, (url, prefixes) in FEEDS.items():
+        previous = last_run_at(feed)
         try:
-            body = get(session, e["url"])
-            ET.fromstring(body)  # XML として読めないもの（エラーのページなど）は保存しない
-        except Exception as exc:  # noqa: BLE001 - 1件の失敗で止めない。次の回に取り直す
-            print(f"失敗：{e['name']}（{exc}）")
-            failed += 1
+            entries = parse_feed(get(session, url))
+        except Exception as exc:  # noqa: BLE001 - 片方のフィードの失敗で、もう片方を止めない
+            print(f"{feed}：フィードを読めなかった（{exc}）")
+            rows.append({"run_at_jst": now.strftime("%Y-%m-%dT%H:%M:%S%z"), "feed_entries": 0, "failed": 1, "feed": feed})
             continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
-            gz.write(body)
-        if e["area"] in AREAS:
-            print(f"保存：{area_name(e['area'])} {e['type']} {e['updated']:%Y-%m-%d %H:%M}（{e['name']}）")
-        saved += 1
+        times = [e["updated"] for e in entries if e["updated"]]
+        targets = [
+            e for e in entries
+            if e["area"] and e["type"].startswith(prefixes) and (TARGET_AREAS is None or e["area"] in TARGET_AREAS)
+        ]
+        kinki = sum(1 for e in targets if e["area"] in AREAS)
+        todo = [e for e in targets if not saved_path(e).exists()]
+        # 古い順に取る（上限で残すのは新しい分＝フィードに長く残る分）
+        todo.sort(key=lambda e: e["name"])
+        deferred = max(0, len(todo) - budget)
+        todo = todo[:budget]
 
-    # 前回の実行より後の分しかフィードに残っていなければ、間の電文を取りこぼしたかもしれない
-    oldest = min(times) if times else None
-    gap = bool(previous and oldest and oldest > previous)
-    if gap:
-        print(f"注意：フィードの最も古い入電（{oldest:%Y-%m-%d %H:%M}）が前回の実行（{previous:%Y-%m-%d %H:%M}）より新しい。間を取りこぼした可能性がある")
+        saved = failed = 0
+        for e in todo:
+            path = saved_path(e)
+            time.sleep(pause_sec)
+            try:
+                body = get(session, e["url"])
+                ET.fromstring(body)  # XML として読めないもの（エラーのページなど）は保存しない
+            except Exception as exc:  # noqa: BLE001 - 1件の失敗で止めない。次の回に取り直す
+                print(f"失敗：{e['name']}（{exc}）")
+                failed += 1
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
+                gz.write(body)
+            if e["area"] in AREAS:
+                print(f"保存：{area_name(e['area'])} {e['type']} {e['updated']:%Y-%m-%d %H:%M}（{e['name']}）")
+            saved += 1
+        budget -= len(todo)
 
-    row = {
-        "run_at_jst": now.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "feed_entries": len(entries),
-        "feed_oldest_jst": oldest.strftime("%Y-%m-%dT%H:%M") if oldest else "",
-        "feed_newest_jst": max(times).strftime("%Y-%m-%dT%H:%M") if times else "",
-        "kinki_warning_entries": kinki,
-        "new_saved": saved,
-        "failed": failed,
-        "gap_suspected": int(gap),
-        "warning_entries": len(targets),
-        "deferred": deferred,
-    }
-    append_log(row, now)
-    print(
-        f"フィード {len(entries)} 件（{row['feed_oldest_jst']}〜{row['feed_newest_jst']}）、"
-        f"警報 {len(targets)} 件（うち近畿 {kinki}）、新しく保存 {saved} 件、失敗 {failed} 件、次の回に回した {deferred} 件"
-    )
-    return row
+        # 前回の実行より後の分しかフィードに残っていなければ、間の電文を取りこぼしたかもしれない
+        oldest = min(times) if times else None
+        gap = bool(previous and oldest and oldest > previous)
+        if gap:
+            print(f"注意：{feed} の最も古い入電（{oldest:%Y-%m-%d %H:%M}）が前回（{previous:%Y-%m-%d %H:%M}）より新しい。間を取りこぼした可能性がある")
+
+        row = {
+            "run_at_jst": now.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "feed_entries": len(entries),
+            "feed_oldest_jst": oldest.strftime("%Y-%m-%dT%H:%M") if oldest else "",
+            "feed_newest_jst": max(times).strftime("%Y-%m-%dT%H:%M") if times else "",
+            "kinki_warning_entries": kinki,
+            "new_saved": saved,
+            "failed": failed,
+            "gap_suspected": int(gap),
+            "warning_entries": len(targets),
+            "deferred": deferred,
+            "feed": feed,
+        }
+        rows.append(row)
+        print(
+            f"{feed}：フィード {len(entries)} 件（{row['feed_oldest_jst']}〜{row['feed_newest_jst']}）、"
+            f"対象 {len(targets)} 件（うち近畿 {kinki}）、新しく保存 {saved} 件、失敗 {failed} 件、次の回に回した {deferred} 件"
+        )
+    append_log(rows, now)
+    return rows
 
 
 def main() -> int:
     session = requests.Session()
     repo = os.environ.get("GITHUB_REPOSITORY", "local")
     session.headers["User-Agent"] = f"kinki-opendata-collector (+https://github.com/{repo})"
-    row = collect(session)
-    return 1 if row["feed_entries"] == 0 else 0
+    rows = collect(session)
+    return 1 if all(r["feed_entries"] == 0 for r in rows) else 0
 
 
 if __name__ == "__main__":
