@@ -1,0 +1,53 @@
+# 近畿6府県の気象警報・注意報の電文を、気象庁防災情報XMLの「随時・長期フィード」から集める。
+# 長期フィードは数日分を載せているので、毎時の実行が遅れたり飛んだりしても取りこぼさない。
+# 止めたいときは Actions タブで Disable にする。
+name: collect-warning-xml
+
+on:
+  schedule:
+    - cron: "41 * * * *" # 毎時（UTC の41分）
+  workflow_dispatch:
+
+permissions:
+  contents: write # data/warning_xml/ のコミット
+
+concurrency:
+  group: collect-warning-xml
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: パッケージを入れる
+        run: pip install -r requirements.txt
+
+      - name: 電文を集める
+        run: python scripts/collect_warning_xml.py
+
+      - name: コミット
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/warning_xml
+          if git diff --cached --quiet; then
+            echo "変化なし"
+            exit 0
+          fi
+          git commit -m "警報の電文を更新 $(TZ=Asia/Tokyo date +%Y-%m-%dT%H:%M)"
+          for i in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            sleep 10
+          done
+          exit 1
