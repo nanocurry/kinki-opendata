@@ -1,4 +1,6 @@
-"""近畿の府県の気象警報・注意報を、気象庁防災情報XMLの「随時・長期フィード」から集める。
+"""全国の気象警報・注意報の電文を、気象庁防災情報XMLの「随時・長期フィード」から集める。
+
+（11/4 の初回は近畿6府県だけ。同じ日から全国。分析は近畿に絞る）
 
 長期フィード（extra_l.xml）は毎時更新で、数日分の全入電を載せている。
 そのため GitHub の定期実行が1〜2時間遅れても、電文を1件ずつ取りこぼさずに拾える
@@ -29,7 +31,12 @@ JST = timezone(timedelta(hours=9), "JST")
 FEED_URL = "https://www.data.jma.go.jp/developer/xml/feed/extra_l.xml"
 ATOM = {"a": "http://www.w3.org/2005/Atom"}
 
-# 近畿の府県（発表官署の地域コード）。電文のファイル名の末尾に入っている
+# 集める府県（発表官署の地域コード。電文のファイル名の末尾に入っている）。None なら全国
+TARGET_AREAS: set[str] | None = None
+# 1回の実行で電文を取る件数の上限。残りは次の回に回す（フィードには7日分残る）
+MAX_DOWNLOADS = 1500
+
+# 近畿の府県（分析で使う。ログの表示にも使う）
 AREAS = {
     "270000": "大阪府",
     "260000": "京都府",
@@ -54,6 +61,8 @@ LOG_FIELDS = [
     "new_saved",
     "failed",
     "gap_suspected",
+    "warning_entries",
+    "deferred",
 ]
 
 
@@ -114,26 +123,46 @@ def last_run_at() -> datetime | None:
 def append_log(row: dict, now: datetime) -> None:
     path = DATA_DIR / f"fetch_log_{now:%Y-%m}.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
+    old_rows: list[dict] = []
+    if path.exists():
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames != LOG_FIELDS:  # 列が増えたときは、前の行を新しい列で書き直す
+                old_rows = list(reader)
+    if old_rows:
+        path.unlink()
     new = not path.exists()
     with open(path, "a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=LOG_FIELDS, lineterminator="\n")
+        w = csv.DictWriter(f, fieldnames=LOG_FIELDS, restval="", lineterminator="\n")
         if new:
             w.writeheader()
+        w.writerows(old_rows)
         w.writerow(row)
 
 
-def collect(session: requests.Session, now: datetime | None = None, pause_sec: float = 1.0) -> dict:
+def area_name(code: str) -> str:
+    return AREAS.get(code, code)
+
+
+def collect(session: requests.Session, now: datetime | None = None, pause_sec: float = 0.3) -> dict:
     now = now or datetime.now(JST)
     previous = last_run_at()
     entries = parse_feed(get(session, FEED_URL))
     times = [e["updated"] for e in entries if e["updated"]]
-    targets = [e for e in entries if e["area"] in AREAS and e["type"].startswith(TYPE_PREFIX)]
+    targets = [
+        e for e in entries
+        if e["area"] and e["type"].startswith(TYPE_PREFIX) and (TARGET_AREAS is None or e["area"] in TARGET_AREAS)
+    ]
+    kinki = sum(1 for e in targets if e["area"] in AREAS)
+    todo = [e for e in targets if not saved_path(e).exists()]
+    # 古い順に取る（上限で残すのは新しい分＝フィードに長く残る分）
+    todo.sort(key=lambda e: e["name"])
+    deferred = max(0, len(todo) - MAX_DOWNLOADS)
+    todo = todo[:MAX_DOWNLOADS]
 
     saved = failed = 0
-    for e in targets:
+    for e in todo:
         path = saved_path(e)
-        if path.exists():
-            continue
         time.sleep(pause_sec)
         try:
             body = get(session, e["url"])
@@ -145,7 +174,8 @@ def collect(session: requests.Session, now: datetime | None = None, pause_sec: f
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
             gz.write(body)
-        print(f"保存：{AREAS[e['area']]} {e['type']} {e['updated']:%Y-%m-%d %H:%M}（{e['name']}）")
+        if e["area"] in AREAS:
+            print(f"保存：{area_name(e['area'])} {e['type']} {e['updated']:%Y-%m-%d %H:%M}（{e['name']}）")
         saved += 1
 
     # 前回の実行より後の分しかフィードに残っていなければ、間の電文を取りこぼしたかもしれない
@@ -159,13 +189,18 @@ def collect(session: requests.Session, now: datetime | None = None, pause_sec: f
         "feed_entries": len(entries),
         "feed_oldest_jst": oldest.strftime("%Y-%m-%dT%H:%M") if oldest else "",
         "feed_newest_jst": max(times).strftime("%Y-%m-%dT%H:%M") if times else "",
-        "kinki_warning_entries": len(targets),
+        "kinki_warning_entries": kinki,
         "new_saved": saved,
         "failed": failed,
         "gap_suspected": int(gap),
+        "warning_entries": len(targets),
+        "deferred": deferred,
     }
     append_log(row, now)
-    print(f"フィード {len(entries)} 件（{row['feed_oldest_jst']}〜{row['feed_newest_jst']}）、近畿の警報 {len(targets)} 件、新しく保存 {saved} 件、失敗 {failed} 件")
+    print(
+        f"フィード {len(entries)} 件（{row['feed_oldest_jst']}〜{row['feed_newest_jst']}）、"
+        f"警報 {len(targets)} 件（うち近畿 {kinki}）、新しく保存 {saved} 件、失敗 {failed} 件、次の回に回した {deferred} 件"
+    )
     return row
 
 
