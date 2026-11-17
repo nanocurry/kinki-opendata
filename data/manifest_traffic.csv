@@ -175,3 +175,6 @@ date,layer,road_type,file,rows,codes_present,codes_expected,missing_codes,status
 2026-11-16,cctv,3,kinki_cctv_5m_road3_20261116.csv.gz,38016,288,288,,complete,2026-11-17T03:43:13+0900
 2026-11-16,loop,1,kinki_loop_5m_road1_20261116.csv.gz,1735,288,288,,complete,2026-11-17T03:41:53+0900
 2026-11-16,loop,3,kinki_loop_5m_road3_20261116.csv.gz,23623,288,288,,complete,2026-11-17T03:41:08+0900
+2026-11-17,cctv,1,kinki_cctv_5m_road1_20261117.csv.gz,288,288,288,,complete,2026-11-18T02:44:38+0900
+2026-11-17,cctv,3,kinki_cctv_5m_road3_20261117.csv.gz,38016,288,288,,complete,2026-11-18T02:43:56+0900
+2026-11-17,loop,1,kinki_loop_5m_road1_20261117.csv.gz,1745,288,288,,complete,2026-11-18T02:42:37+0900
