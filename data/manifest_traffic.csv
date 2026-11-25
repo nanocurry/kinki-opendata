@@ -201,3 +201,9 @@ date,layer,road_type,file,rows,codes_present,codes_expected,missing_codes,status
 2026-11-22,loop,3,kinki_loop_5m_road3_20261122.csv.gz,23541,287,288,0445,complete_with_gaps,2026-11-24T05:24:26+0900
 2026-11-23,cctv,1,kinki_cctv_5m_road1_20261123.csv.gz,288,288,288,,complete,2026-11-24T05:23:24+0900
 2026-11-23,cctv,3,kinki_cctv_5m_road3_20261123.csv.gz,38016,288,288,,complete,2026-11-24T05:22:46+0900
+2026-11-23,loop,1,kinki_loop_5m_road1_20261123.csv.gz,1723,286,288,0445;2245,complete_with_gaps,2026-11-25T09:57:12+0900
+2026-11-23,loop,3,kinki_loop_5m_road3_20261123.csv.gz,23459,286,288,0445;2245,complete_with_gaps,2026-11-25T09:56:32+0900
+2026-11-24,cctv,1,kinki_cctv_5m_road1_20261124.csv.gz,288,288,288,,complete,2026-11-25T09:55:33+0900
+2026-11-24,cctv,3,kinki_cctv_5m_road3_20261124.csv.gz,38016,288,288,,complete,2026-11-25T09:54:55+0900
+2026-11-24,loop,1,kinki_loop_5m_road1_20261124.csv.gz,1735,288,288,,complete,2026-11-25T09:53:44+0900
+2026-11-24,loop,3,kinki_loop_5m_road3_20261124.csv.gz,23623,288,288,,complete,2026-11-25T09:53:03+0900
